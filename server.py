@@ -1,4 +1,4 @@
-jo#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 BWIBBU 歷史資料回朔工具 - 後端
