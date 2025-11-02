@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+jo#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 BWIBBU 歷史資料回朔工具 - 後端
@@ -33,43 +33,57 @@ class DatabaseManager:
     def __init__(self, use_local=False):
         self.use_local = use_local
         self.connection = None
-        self.db_url = None if use_local else (
+        raw_url = None if use_local else (
             os.environ.get('DATABASE_URL')
             or os.environ.get('NEON_DATABASE_URL')
             or 'postgresql://neondb_owner:npg_6vuayEsIl4Qb@ep-wispy-sky-adgltyd1-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require'
         )
+        self.db_url = raw_url
         ssl_default = 'require' if self.db_url else 'prefer'
+        ssl_env = os.getenv('DB_SSLMODE')
+        if ssl_env is not None:
+            ssl_env = ssl_env.strip()
         self.config = {
             'host': os.getenv('DB_HOST', 'localhost'),
             'port': os.getenv('DB_PORT', '5432'),
             'database': os.getenv('DB_NAME', 'postgres'),
             'user': os.getenv('DB_USER', 'postgres'),
             'password': os.getenv('DB_PASSWORD', 's8304021'),
-            'sslmode': os.getenv('DB_SSLMODE', ssl_default)
+            'sslmode': ssl_env or ssl_default
         }
     
     def connect(self):
         try:
             if self.db_url:
-                conn_args = {'sslmode': self.config.get('sslmode', 'require')}
+                conn_args = {}
+                if self.config.get('sslmode'):
+                    conn_args['sslmode'] = self.config['sslmode']
+                url_to_use = self.db_url
                 try:
-                    self.connection = psycopg2.connect(self.db_url, **conn_args)
-                except psycopg2.OperationalError as exc:
-                    if 'channel binding' in str(exc).lower() and 'channel_binding=require' in self.db_url:
-                        safe_url = self.db_url.replace('channel_binding=require', 'channel_binding=disable')
+                    self.connection = psycopg2.connect(url_to_use, **conn_args)
+                except psycopg2.Error as exc:
+                    message = str(exc).lower()
+                    if (
+                        ('channel binding' in message or 'channel_binding' in message)
+                        and 'channel_binding=' in url_to_use
+                    ):
+                        safe_url = url_to_use.replace('channel_binding=require', 'channel_binding=disable')
                         logger.warning("channel_binding=require 不支援，改為 disable")
                         self.connection = psycopg2.connect(safe_url, **conn_args)
+                        self.db_url = safe_url
                     else:
                         raise
             else:
-                self.connection = psycopg2.connect(
-                    host=self.config['host'],
-                    port=self.config['port'],
-                    database=self.config['database'],
-                    user=self.config['user'],
-                    password=self.config['password'],
-                    sslmode=self.config.get('sslmode', 'prefer')
-                )
+                local_args = {
+                    'host': self.config['host'],
+                    'port': self.config['port'],
+                    'database': self.config['database'],
+                    'user': self.config['user'],
+                    'password': self.config['password'],
+                }
+                if self.config.get('sslmode'):
+                    local_args['sslmode'] = self.config['sslmode']
+                self.connection = psycopg2.connect(**local_args)
             logger.info(f"資料庫連接成功 ({'本地' if self.use_local else 'Neon'})")
             return True
         except Exception as e:
