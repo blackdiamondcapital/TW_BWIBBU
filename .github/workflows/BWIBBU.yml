@@ -1,9 +1,8 @@
 name: Daily Backfill
-
 on:
   schedule:
     # GitHub Actions uses UTC. 06:00 UTC = 14:00 UTC+08 every day
-    - cron: '0 6 * * *'
+    - cron: "0 6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -23,7 +22,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
           # 如需 pip 快取再打開下一行，並記得不要 purge/--no-cache-dir
           # cache: 'pip'
 
@@ -60,72 +59,73 @@ jobs:
           DB_SSLMODE: ${{ secrets.DB_SSLMODE }}
         run: |
           python <<'PY'
-from datetime import datetime
-import runpy, pathlib
-from psycopg2.extras import execute_values
-import logging
+          from datetime import datetime
+          import runpy
+          import pathlib
+          from psycopg2.extras import execute_values
+          import logging
 
-# 動態載入 server.py，取得所需類別
-m = runpy.run_path(str(pathlib.Path('server.py')))
-DatabaseManager = m['DatabaseManager']
-BWIBBUFetcher = m['BWIBBUFetcher']
+          # 動態載入 server.py，取得所需類別
+          m = runpy.run_path(str(pathlib.Path('server.py')))
+          DatabaseManager = m['DatabaseManager']
+          BWIBBUFetcher = m['BWIBBUFetcher']
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+          logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+          logger = logging.getLogger(__name__)
 
-today = datetime.now().date()
-start_date = today.strftime('%Y-%m-%d')
-end_date = today.strftime('%Y-%m-%d')
+          today = datetime.now().date()
+          start_date = today.strftime('%Y-%m-%d')
+          end_date = today.strftime('%Y-%m-%d')
 
-logger.info(f'開始抓取 {start_date} 的最新資料')
+          logger.info(f'開始抓取 {start_date} 的最新資料')
 
-db = DatabaseManager(use_local=False)
-if not db.connect():
-    logger.error('資料庫連線失敗')
-    raise SystemExit(1)
+          db = DatabaseManager(use_local=False)
+          if not db.connect():
+              logger.error('資料庫連線失敗')
+              raise SystemExit(1)
 
-try:
-    db.create_tables()
+          try:
+              db.create_tables()
 
-    fetcher = BWIBBUFetcher()
-    logger.info(f'正在抓取 {start_date} 的 BWIBBU 資料...')
-    records, daily_stats = fetcher.fetch_range_stats(start_date, end_date)
+              fetcher = BWIBBUFetcher()
+              logger.info(f'正在抓取 {start_date} 的 BWIBBU 資料...')
+              records, daily_stats = fetcher.fetch_range_stats(start_date, end_date)
 
-    if not records:
-        logger.info(f'指定期間 {start_date} 無有效資料')
-    else:
-        cursor = db.connection.cursor()
-        values = []
-        for rec in records:
-            try:
-                rec_date = datetime.strptime(rec['date'], '%Y-%m-%d').date()
-                values.append((
-                    rec['code'],
-                    rec_date,
-                    rec['name'],
-                    rec['pe_ratio'],
-                    rec['dividend_yield'],
-                    rec['pb_ratio']
-                ))
-            except Exception as e:
-                logger.warning(f'記錄解析失敗: {e}')
-                continue
+              if not records:
+                  logger.info(f'指定期間 {start_date} 無有效資料')
+              else:
+                  cursor = db.connection.cursor()
+                  values = []
+                  for rec in records:
+                      try:
+                          rec_date = datetime.strptime(rec['date'], '%Y-%m-%d').date()
+                          values.append((
+                              rec['code'],
+                              rec_date,
+                              rec['name'],
+                              rec['pe_ratio'],
+                              rec['dividend_yield'],
+                              rec['pb_ratio']
+                          ))
+                      except Exception as e:
+                          logger.warning(f'記錄解析失敗: {e}')
+                          continue
 
-        if values:
-            upsert_sql = '''
-                INSERT INTO tw_stock_bwibbu (code, date, name, pe_ratio, dividend_yield, pb_ratio)
-                VALUES %s
-                ON CONFLICT (code, date) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    pe_ratio = EXCLUDED.pe_ratio,
-                    dividend_yield = EXCLUDED.dividend_yield,
-                    pb_ratio = EXCLUDED.pb_ratio,
-                    updated_at = CURRENT_TIMESTAMP
-            '''
-            execute_values(cursor, upsert_sql, values, page_size=500)
-            db.connection.commit()
-            logger.info(f'成功寫入 {len(values)} 筆記錄到資料庫')
-            logger.info(f'每日統計: {daily_stats}')
-finally:
-    db.disconnect()
-PY
+                  if values:
+                      upsert_sql = '''
+                          INSERT INTO tw_stock_bwibbu (code, date, name, pe_ratio, dividend_yield, pb_ratio)
+                          VALUES %s
+                          ON CONFLICT (code, date) DO UPDATE SET
+                              name = EXCLUDED.name,
+                              pe_ratio = EXCLUDED.pe_ratio,
+                              dividend_yield = EXCLUDED.dividend_yield,
+                              pb_ratio = EXCLUDED.pb_ratio,
+                              updated_at = CURRENT_TIMESTAMP
+                      '''
+                      execute_values(cursor, upsert_sql, values, page_size=500)
+                      db.connection.commit()
+                      logger.info(f'成功寫入 {len(values)} 筆記錄到資料庫')
+                      logger.info(f'每日統計: {daily_stats}')
+          finally:
+              db.disconnect()
+          PY
