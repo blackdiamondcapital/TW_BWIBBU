@@ -24,27 +24,30 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          # 移除 pip cache，避免快取資料夾不存在的提示
+          # 如需 pip 快取再打開下一行，並記得不要 purge/--no-cache-dir
           # cache: 'pip'
 
       - name: Clean old builds
+        shell: bash
         run: |
           pip uninstall -y numpy pandas || true
           python -m pip cache purge || true
           pip cache purge || true
 
       - name: Install dependencies (if any)
+        shell: bash
         run: |
           if [ -f requirements.txt ]; then
             echo "numpy==1.26.4" > constraints.txt
-            pip install --upgrade pip
+            python -m pip install --upgrade pip
             pip install --no-cache-dir -r requirements.txt -c constraints.txt
           else
-            # 沒有 requirements.txt 也至少要裝 psycopg2-binary 才有 execute_values
+            python -m pip install --upgrade pip
             pip install --no-cache-dir psycopg2-binary
           fi
 
       - name: Run daily backfill
+        shell: bash
         env:
           TZ: Asia/Taipei
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -55,7 +58,6 @@ jobs:
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_SSLMODE: ${{ secrets.DB_SSLMODE }}
-        shell: bash
         run: |
           python <<'PY'
 from datetime import datetime
